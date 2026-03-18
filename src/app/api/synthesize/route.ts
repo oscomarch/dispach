@@ -1,7 +1,15 @@
 import { streamText } from 'ai';
 import { anthropic } from '@ai-sdk/anthropic';
+import { createClient } from '@/lib/supabase/server';
 
 export async function POST(req: Request) {
+  // Auth check
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) {
+    return new Response('Unauthorized', { status: 401 });
+  }
+
   const { flow, responses } = await req.json();
 
   const systemPrompt = `You are an expert meeting facilitator and decision analyst. You analyze async discussion responses and produce clear, actionable summaries. Be direct and specific. Use bold for key findings. Structure your output as:
@@ -23,7 +31,7 @@ Responses (${responses.length} of ${flow.participant_ids.length} participants):
 ${responses
   .map(
     (r: { author: { full_name: string }; vote?: string; content?: string; sections?: Record<string, string> }) =>
-      `- ${r.author.full_name}${r.vote ? ` (voted: ${r.vote})` : ''}:\n  ${r.content || JSON.stringify(r.sections)}`
+      `- ${r.author?.full_name || 'Unknown'}${r.vote ? ` (voted: ${r.vote})` : ''}:\n  ${r.content || JSON.stringify(r.sections)}`
   )
   .join('\n')}
 

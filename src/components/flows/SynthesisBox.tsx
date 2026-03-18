@@ -1,27 +1,118 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import Button from '@/components/ui/Button';
-import type { Synthesis } from '@/types';
+import { saveSynthesis } from '@/app/actions';
+import type { Synthesis, Flow, Response as FlowResponse, ActionItem } from '@/types';
 
 interface SynthesisBoxProps {
   synthesis: Synthesis | null | undefined;
   responseCount: number;
-  onSynthesize?: () => void;
+  flowId: string;
+  flow: Flow;
+  responses: FlowResponse[];
 }
 
-export default function SynthesisBox({ synthesis, responseCount, onSynthesize }: SynthesisBoxProps) {
+function parseSynthesisText(text: string): {
+  summary: string;
+  consensus: string | null;
+  disagreements: string | null;
+  open_questions: string | null;
+  action_items: ActionItem[];
+} {
+  const sections: Record<string, string> = {};
+  const sectionNames = ['Summary', 'Consensus', 'Disagreements', 'Open Questions', 'Recommended Next Steps'];
+
+  for (const name of sectionNames) {
+    const regex = new RegExp(`\\*\\*${name}\\*\\*[:\\s]*([\\s\\S]*?)(?=\\*\\*(?:${sectionNames.join('|')})\\*\\*|$)`, 'i');
+    const match = text.match(regex);
+    if (match) {
+      sections[name] = match[1].trim();
+    }
+  }
+
+  // Parse action items from "Recommended Next Steps" as a list
+  const actionItems: ActionItem[] = [];
+  const stepsText = sections['Recommended Next Steps'] || '';
+  const lines = stepsText.split('\n').filter((l) => l.trim().startsWith('-') || l.trim().startsWith('*') || /^\d+\./.test(l.trim()));
+  for (const line of lines) {
+    const task = line.replace(/^[\s\-*\d.]+/, '').trim();
+    if (task) {
+      actionItems.push({ task, owner_id: null, due_date: null });
+    }
+  }
+
+  return {
+    summary: sections['Summary'] || text.slice(0, 500),
+    consensus: sections['Consensus'] || null,
+    disagreements: sections['Disagreements'] || null,
+    open_questions: sections['Open Questions'] || null,
+    action_items: actionItems,
+  };
+}
+
+export default function SynthesisBox({ synthesis, responseCount, flowId, flow, responses }: SynthesisBoxProps) {
+  const router = useRouter();
   const [loading, setLoading] = useState(false);
+  const [streamedText, setStreamedText] = useState('');
+  const [error, setError] = useState('');
 
   const handleSynthesize = async () => {
     setLoading(true);
-    onSynthesize?.();
-    // Simulate AI processing
-    await new Promise((r) => setTimeout(r, 2000));
-    setLoading(false);
+    setStreamedText('');
+    setError('');
+
+    try {
+      const res = await fetch('/api/synthesize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ flow, responses }),
+      });
+
+      if (!res.ok) {
+        throw new Error('Failed to start synthesis');
+      }
+
+      const reader = res.body!.getReader();
+      const decoder = new TextDecoder();
+      let fullText = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value);
+        const lines = chunk.split('\n').filter(Boolean);
+
+        for (const line of lines) {
+          // AI SDK data stream format: 0:"text chunk"
+          if (line.startsWith('0:')) {
+            try {
+              const text = JSON.parse(line.slice(2));
+              fullText += text;
+              setStreamedText(fullText);
+            } catch {
+              // Skip malformed lines
+            }
+          }
+        }
+      }
+
+      // Parse the completed text into structured synthesis
+      const parsed = parseSynthesisText(fullText);
+
+      // Save to database
+      await saveSynthesis(flowId, parsed);
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Synthesis failed');
+    } finally {
+      setLoading(false);
+    }
   };
 
-  if (!synthesis && responseCount === 0) return null;
+  if (!synthesis && responseCount === 0 && !streamedText) return null;
 
   return (
     <div
@@ -40,7 +131,7 @@ export default function SynthesisBox({ synthesis, responseCount, onSynthesize }:
         </h3>
       </div>
 
-      {!synthesis && !loading && (
+      {!synthesis && !loading && !streamedText && (
         <div className="text-center py-4">
           <p className="text-sm text-text-muted mb-4">
             {responseCount} response{responseCount !== 1 ? 's' : ''} ready to analyze
@@ -48,18 +139,26 @@ export default function SynthesisBox({ synthesis, responseCount, onSynthesize }:
           <Button onClick={handleSynthesize}>
             Synthesize responses
           </Button>
+          {error && <p className="text-sm text-error mt-3">{error}</p>}
         </div>
       )}
 
       {loading && (
-        <div className="flex items-center gap-3 py-4">
-          <svg className="animate-spin h-5 w-5 text-accent" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-          </svg>
-          <span className="text-sm text-text-secondary">
-            Analyzing {responseCount} responses...
-          </span>
+        <div className="py-4">
+          <div className="flex items-center gap-3 mb-4">
+            <svg className="animate-spin h-5 w-5 text-accent" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+            </svg>
+            <span className="text-sm text-text-secondary">
+              Analyzing {responseCount} responses...
+            </span>
+          </div>
+          {streamedText && (
+            <div className="text-sm text-text-secondary leading-relaxed whitespace-pre-wrap">
+              {streamedText}
+            </div>
+          )}
         </div>
       )}
 

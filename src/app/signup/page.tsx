@@ -45,15 +45,19 @@ export default function SignupPage() {
         .replace(/[^a-z0-9]+/g, '-')
         .replace(/(^-|-$)/g, '');
 
-      const { error: teamError } = await supabase.from('teams').insert({
-        name: teamName,
-        slug,
-        created_by: data.user.id,
-      });
+      const { data: teamData, error: teamError } = await supabase
+        .from('teams')
+        .insert({
+          name: teamName,
+          slug,
+          created_by: data.user.id,
+        })
+        .select('id')
+        .single();
 
-      if (!teamError) {
+      if (!teamError && teamData) {
         await supabase.from('team_members').insert({
-          team_id: (await supabase.from('teams').select('id').eq('slug', slug).single()).data?.id,
+          team_id: teamData.id,
           user_id: data.user.id,
           role: 'owner',
         });

@@ -1,21 +1,68 @@
+import { redirect } from 'next/navigation';
 import FlowCard from '@/components/flows/FlowCard';
-import {
-  currentUser,
-  getFlowsAwaitingResponse,
-  getFlowsReadyToSynthesize,
-  getCompletedFlows,
-  mockFlows,
-} from '@/lib/mock-data';
+import { createClient } from '@/lib/supabase/server';
+import type { Flow } from '@/types';
 
-export default function DashboardPage() {
-  const awaitingResponse = getFlowsAwaitingResponse(currentUser.id);
-  const readyToSynthesize = getFlowsReadyToSynthesize(currentUser.id);
-  const completedFlows = getCompletedFlows();
+export default async function DashboardPage() {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) redirect('/login');
 
-  const totalFlows = mockFlows.length;
-  const hoursPerMeeting = 0.75;
-  const hoursSaved = Math.round(totalFlows * hoursPerMeeting * 4.2);
-  const responseRate = 78;
+  const { data: membership } = await supabase
+    .from('team_members')
+    .select('team_id')
+    .eq('user_id', user.id)
+    .limit(1)
+    .single();
+
+  const teamId = membership?.team_id;
+
+  // Fetch flows with author profiles and response/synthesis counts
+  const { data: rawFlows } = teamId
+    ? await supabase
+        .from('flows')
+        .select(`
+          *,
+          author:profiles!author_id(*),
+          responses(id, author_id),
+          synthesis:syntheses(id)
+        `)
+        .eq('team_id', teamId)
+        .order('created_at', { ascending: false })
+    : { data: [] };
+
+  const flows = (rawFlows || []) as (Flow & {
+    responses: { id: string; author_id: string }[];
+    synthesis: { id: string }[] | { id: string } | null;
+  })[];
+
+  // Categorize flows
+  const awaitingResponse = flows.filter(
+    (f) =>
+      f.status === 'active' &&
+      f.participant_ids.includes(user.id) &&
+      !f.responses?.some((r) => r.author_id === user.id)
+  );
+
+  const readyToSynthesize = flows.filter(
+    (f) =>
+      f.status === 'active' &&
+      f.author_id === user.id &&
+      (f.responses?.length ?? 0) > 0 &&
+      (!f.synthesis || (Array.isArray(f.synthesis) && f.synthesis.length === 0))
+  );
+
+  const completedFlows = flows
+    .filter((f) => f.status === 'completed')
+    .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
+    .slice(0, 5);
+
+  // Stats
+  const totalFlows = flows.length;
+  const hoursSaved = Math.round(totalFlows * 0.75 * 4.2);
+  const totalExpected = flows.reduce((sum, f) => sum + (f.participant_ids?.length || 0), 0);
+  const totalResponded = flows.reduce((sum, f) => sum + (f.responses?.length || 0), 0);
+  const responseRate = totalExpected > 0 ? Math.round((totalResponded / totalExpected) * 100) : 0;
 
   return (
     <div className="max-w-[1200px] mx-auto px-8 py-8">
