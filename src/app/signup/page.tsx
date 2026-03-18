@@ -2,7 +2,6 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import Input from '@/components/ui/Input';
 import Button from '@/components/ui/Button';
@@ -14,8 +13,6 @@ export default function SignupPage() {
   const [teamName, setTeamName] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const router = useRouter();
-
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -64,8 +61,8 @@ export default function SignupPage() {
       }
     }
 
-    router.push('/app');
-    router.refresh();
+    // Hard navigation ensures auth cookies are sent with the request
+    window.location.href = '/app';
   };
 
   const handleGoogleSignup = async () => {
