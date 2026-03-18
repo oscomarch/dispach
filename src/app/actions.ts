@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
-import { supabaseAdmin } from '@/lib/supabase/admin';
+import { getSupabaseAdmin } from '@/lib/supabase/admin';
 import type { FlowType } from '@/lib/config/flow-types';
 import type { ActionItem } from '@/types';
 
@@ -72,7 +72,10 @@ export async function saveSynthesis(
   }
 ) {
   // Use admin client — no INSERT RLS policy on syntheses table
-  const { error: synthError } = await supabaseAdmin.from('syntheses').upsert(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const admin = getSupabaseAdmin() as any;
+
+  const { error: synthError } = await admin.from('syntheses').upsert(
     {
       flow_id: flowId,
       summary: synthesis.summary,
@@ -87,7 +90,7 @@ export async function saveSynthesis(
   if (synthError) throw new Error(synthError.message);
 
   // Mark flow as completed
-  const { error: flowError } = await supabaseAdmin
+  const { error: flowError } = await admin
     .from('flows')
     .update({ status: 'completed', updated_at: new Date().toISOString() })
     .eq('id', flowId);

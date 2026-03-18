@@ -105,7 +105,7 @@ export default function NewFlowForm({ members, teamId }: NewFlowFormProps) {
             <Input
               id="title"
               label="Flow title"
-              placeholder={`e.g. "${FLOW_TYPES[flowType].label} — ${new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric' })}"`}
+              placeholder={`e.g. "${FLOW_TYPES[flowType].label} — March 18"`}
               value={title}
               onChange={(e) => setTitle(e.target.value)}
             />
