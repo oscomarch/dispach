@@ -18,51 +18,55 @@ export default function SignupPage() {
     setLoading(true);
     setError('');
 
-    const supabase = createClient();
+    try {
+      const supabase = createClient();
 
-    const { data, error: signUpError } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        data: {
-          full_name: fullName,
+      const { data, error: signUpError } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: {
+            full_name: fullName,
+          },
         },
-      },
-    });
+      });
 
-    if (signUpError) {
-      setError(signUpError.message);
-      setLoading(false);
-      return;
-    }
-
-    if (data.user && teamName) {
-      const slug = teamName
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/(^-|-$)/g, '');
-
-      const { data: teamData, error: teamError } = await supabase
-        .from('teams')
-        .insert({
-          name: teamName,
-          slug,
-          created_by: data.user.id,
-        })
-        .select('id')
-        .single();
-
-      if (!teamError && teamData) {
-        await supabase.from('team_members').insert({
-          team_id: teamData.id,
-          user_id: data.user.id,
-          role: 'owner',
-        });
+      if (signUpError) {
+        setError(signUpError.message);
+        setLoading(false);
+        return;
       }
-    }
 
-    // Hard navigation ensures auth cookies are sent with the request
-    window.location.href = '/app';
+      if (data.user && teamName) {
+        const slug = teamName
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, '-')
+          .replace(/(^-|-$)/g, '');
+
+        const { data: teamData, error: teamError } = await supabase
+          .from('teams')
+          .insert({
+            name: teamName,
+            slug,
+            created_by: data.user.id,
+          })
+          .select('id')
+          .single();
+
+        if (!teamError && teamData) {
+          await supabase.from('team_members').insert({
+            team_id: teamData.id,
+            user_id: data.user.id,
+            role: 'owner',
+          });
+        }
+      }
+
+      window.location.href = '/app';
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Signup failed. Check that Supabase is configured.');
+      setLoading(false);
+    }
   };
 
   const handleGoogleSignup = async () => {

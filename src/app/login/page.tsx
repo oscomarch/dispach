@@ -16,15 +16,19 @@ export default function LoginPage() {
     setLoading(true);
     setError('');
 
-    const supabase = createClient();
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    try {
+      const supabase = createClient();
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
 
-    if (error) {
-      setError(error.message);
+      if (error) {
+        setError(error.message);
+        setLoading(false);
+      } else {
+        window.location.href = '/app';
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Login failed. Check that Supabase is configured.');
       setLoading(false);
-    } else {
-      // Hard navigation ensures auth cookies are sent with the request
-      window.location.href = '/app';
     }
   };
 
