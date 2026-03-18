@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { createClient, isSupabaseConfigured } from '@/lib/supabase/client';
+import { setupTeam } from '@/app/actions';
 import Input from '@/components/ui/Input';
 import Button from '@/components/ui/Button';
 
@@ -39,28 +40,12 @@ export default function SignupPage() {
         return;
       }
 
+      // Create team via server action (uses admin client to bypass RLS)
       if (data.user && teamName) {
-        const slug = teamName
-          .toLowerCase()
-          .replace(/[^a-z0-9]+/g, '-')
-          .replace(/(^-|-$)/g, '');
-
-        const { data: teamData, error: teamError } = await supabase
-          .from('teams')
-          .insert({
-            name: teamName,
-            slug,
-            created_by: data.user.id,
-          })
-          .select('id')
-          .single();
-
-        if (!teamError && teamData) {
-          await supabase.from('team_members').insert({
-            team_id: teamData.id,
-            user_id: data.user.id,
-            role: 'owner',
-          });
+        try {
+          await setupTeam(teamName);
+        } catch {
+          // Team creation failed — user can still proceed and create team later
         }
       }
 

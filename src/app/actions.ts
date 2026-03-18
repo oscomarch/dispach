@@ -150,6 +150,46 @@ export async function inviteTeamMember(teamId: string, email: string) {
   return { error: null };
 }
 
+export async function setupTeam(teamName: string) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('Not authenticated');
+
+  // Use admin client to bypass RLS (user may not have profile yet via trigger)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const admin = getSupabaseAdmin() as any;
+
+  // Ensure profile exists
+  await admin.from('profiles').upsert({
+    id: user.id,
+    full_name: user.user_metadata?.full_name || user.user_metadata?.name || user.email?.split('@')[0] || 'User',
+    email: user.email || '',
+    avatar_url: user.user_metadata?.avatar_url || null,
+  });
+
+  const slug = teamName
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/(^-|-$)/g, '');
+
+  const { data: teamData, error: teamError } = await admin
+    .from('teams')
+    .insert({ name: teamName, slug, created_by: user.id })
+    .select('id')
+    .single();
+
+  if (teamError) throw new Error(teamError.message);
+
+  await admin.from('team_members').insert({
+    team_id: teamData.id,
+    user_id: user.id,
+    role: 'owner',
+  });
+
+  revalidatePath('/app');
+  return { teamId: teamData.id };
+}
+
 export async function signOut() {
   const supabase = await createClient();
   await supabase.auth.signOut();

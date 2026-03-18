@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation';
 import Sidebar from '@/components/layout/Sidebar';
 import { createClient, isSupabaseConfigured } from '@/lib/supabase/server';
+import { getSupabaseAdmin } from '@/lib/supabase/admin';
 
 export const dynamic = 'force-dynamic';
 
@@ -57,8 +58,11 @@ ANTHROPIC_API_KEY=your-api-key`}
     .single();
 
   if (!profile) {
+    // Use admin client to bypass RLS — the trigger may not have fired
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const admin = getSupabaseAdmin() as any;
     const meta = user.user_metadata || {};
-    const { data: newProfile } = await supabase
+    const { data: newProfile } = await admin
       .from('profiles')
       .upsert({
         id: user.id,
