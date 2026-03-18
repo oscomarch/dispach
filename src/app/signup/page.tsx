@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { createClient } from '@/lib/supabase/client';
+import { createClient, isSupabaseConfigured } from '@/lib/supabase/client';
 import Input from '@/components/ui/Input';
 import Button from '@/components/ui/Button';
 
@@ -13,6 +13,8 @@ export default function SignupPage() {
   const [teamName, setTeamName] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const configured = isSupabaseConfigured();
+
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -70,13 +72,17 @@ export default function SignupPage() {
   };
 
   const handleGoogleSignup = async () => {
-    const supabase = createClient();
-    await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: {
-        redirectTo: `${window.location.origin}/auth/callback`,
-      },
-    });
+    try {
+      const supabase = createClient();
+      await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: `${window.location.origin}/auth/callback`,
+        },
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Google signup failed.');
+    }
   };
 
   return (
@@ -93,6 +99,12 @@ export default function SignupPage() {
           </Link>
           <p className="text-sm text-text-muted mt-2">Create your account</p>
         </div>
+
+        {!configured && (
+          <div className="bg-error/10 border border-error/20 rounded-lg p-4 mb-6 text-center">
+            <p className="text-sm text-error">Supabase is not configured. Check your environment variables.</p>
+          </div>
+        )}
 
         <div className="bg-bg-card border border-border-default rounded-xl p-8">
           <button

@@ -39,19 +39,59 @@ ANTHROPIC_API_KEY=your-api-key`}
     );
   }
 
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  let supabase;
+  try {
+    supabase = await createClient();
+  } catch {
+    redirect('/login');
+  }
 
+  const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect('/login');
 
-  const { data: profile } = await supabase
+  // Fetch profile — create one if it doesn't exist yet (e.g. fresh OAuth signup)
+  let { data: profile } = await supabase
     .from('profiles')
     .select('*')
     .eq('id', user.id)
     .single();
 
-  if (!profile) redirect('/login');
+  if (!profile) {
+    const meta = user.user_metadata || {};
+    const { data: newProfile } = await supabase
+      .from('profiles')
+      .upsert({
+        id: user.id,
+        full_name: meta.full_name || meta.name || user.email?.split('@')[0] || 'User',
+        email: user.email || '',
+        avatar_url: meta.avatar_url || null,
+      })
+      .select('*')
+      .single();
 
+    profile = newProfile;
+  }
+
+  if (!profile) {
+    // Profile creation failed — show error instead of redirect loop
+    return (
+      <div className="min-h-screen bg-bg-primary flex items-center justify-center px-4">
+        <div className="max-w-[400px] text-center">
+          <h2 className="text-xl text-text-primary mb-3" style={{ fontFamily: 'var(--font-heading)' }}>
+            Account setup incomplete
+          </h2>
+          <p className="text-sm text-text-muted mb-4">
+            Your profile could not be created. Please try signing out and back in.
+          </p>
+          <a href="/login" className="px-5 py-2.5 bg-accent text-white text-sm font-medium rounded-lg hover:bg-accent-hover transition-all inline-block">
+            Go to login
+          </a>
+        </div>
+      </div>
+    );
+  }
+
+  // Fetch team membership — handle case where user has no team yet
   const { data: membership } = await supabase
     .from('team_members')
     .select('team_id')

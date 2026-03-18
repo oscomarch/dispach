@@ -8,33 +8,39 @@ export default async function DashboardPage() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect('/login');
 
-  const { data: membership } = await supabase
-    .from('team_members')
-    .select('team_id')
-    .eq('user_id', user.id)
-    .limit(1)
-    .single();
-
-  const teamId = membership?.team_id;
-
-  // Fetch flows with author profiles and response/synthesis counts
-  const { data: rawFlows } = teamId
-    ? await supabase
-        .from('flows')
-        .select(`
-          *,
-          author:profiles!author_id(*),
-          responses(id, author_id),
-          synthesis:syntheses(id)
-        `)
-        .eq('team_id', teamId)
-        .order('created_at', { ascending: false })
-    : { data: [] };
-
-  const flows = (rawFlows || []) as (Flow & {
+  let flows: (Flow & {
     responses: { id: string; author_id: string }[];
     synthesis: { id: string }[] | { id: string } | null;
-  })[];
+  })[] = [];
+
+  try {
+    const { data: membership } = await supabase
+      .from('team_members')
+      .select('team_id')
+      .eq('user_id', user.id)
+      .limit(1)
+      .single();
+
+    const teamId = membership?.team_id;
+
+    // Fetch flows with author profiles and response/synthesis counts
+    const { data: rawFlows } = teamId
+      ? await supabase
+          .from('flows')
+          .select(`
+            *,
+            author:profiles!author_id(*),
+            responses(id, author_id),
+            synthesis:syntheses(id)
+          `)
+          .eq('team_id', teamId)
+          .order('created_at', { ascending: false })
+      : { data: [] };
+
+    flows = (rawFlows || []) as typeof flows;
+  } catch {
+    // DB queries failed — show empty dashboard rather than crashing
+  }
 
   // Categorize flows
   const awaitingResponse = flows.filter(
