@@ -59,21 +59,49 @@ ANTHROPIC_API_KEY=your-api-key`}
 
   if (!profile) {
     // Use admin client to bypass RLS — the trigger may not have fired
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const admin = getSupabaseAdmin() as any;
-    const meta = user.user_metadata || {};
-    const { data: newProfile } = await admin
-      .from('profiles')
-      .upsert({
-        id: user.id,
-        full_name: meta.full_name || meta.name || user.email?.split('@')[0] || 'User',
-        email: user.email || '',
-        avatar_url: meta.avatar_url || null,
-      })
-      .select('*')
-      .single();
+    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!serviceRoleKey) {
+      console.error('[profile-creation] SUPABASE_SERVICE_ROLE_KEY is not set');
+    } else {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const admin = getSupabaseAdmin() as any;
+      const meta = user.user_metadata || {};
+      const { data: newProfile, error: upsertError } = await admin
+        .from('profiles')
+        .upsert({
+          id: user.id,
+          full_name: meta.full_name || meta.name || user.email?.split('@')[0] || 'User',
+          email: user.email || '',
+          avatar_url: meta.avatar_url || null,
+        })
+        .select('*')
+        .single();
 
-    profile = newProfile;
+      if (upsertError) {
+        console.error('[profile-creation] Admin upsert failed:', upsertError.message, upsertError);
+      }
+      profile = newProfile;
+    }
+
+    // Final fallback — try inserting via the user's own client (if RLS allows)
+    if (!profile) {
+      const meta = user.user_metadata || {};
+      const { data: fallbackProfile, error: fallbackError } = await supabase
+        .from('profiles')
+        .upsert({
+          id: user.id,
+          full_name: meta.full_name || meta.name || user.email?.split('@')[0] || 'User',
+          email: user.email || '',
+          avatar_url: meta.avatar_url || null,
+        })
+        .select('*')
+        .single();
+
+      if (fallbackError) {
+        console.error('[profile-creation] Fallback upsert failed:', fallbackError.message, fallbackError);
+      }
+      profile = fallbackProfile;
+    }
   }
 
   if (!profile) {
